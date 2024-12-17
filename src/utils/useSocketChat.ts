@@ -15,65 +15,80 @@ type MessageResponse = {
   value: string;
 };
 
-export function useSocketChat(room: string, name?: string) {
+export function useSocketChat(room: string, name: string) {
   const { current: socket } = useRef(
     io(CHAT_SERVER, {
       autoConnect: false,
     }),
   );
+
   const [inputValue, setInputValue] = useState("");
   const [chats, setChats] = useState<Message[]>([]);
 
   useEffect(() => {
     socket.disconnect();
     socket.connect();
-    if (!name) return;
     socket.emit("join", { room, name });
     return () => {
       socket.disconnect();
       setChats([]);
     };
-  }, [name, room, socket]);
+  }, [room, name, socket]);
+
   useEffect(() => {
-    if (!name) return;
-    function onChat(value: MessageResponse) {
-      if (value.type !== "chat") return;
-      const chatMessage = {
-        sender: value.name,
-        time: new Date().toLocaleTimeString().replace(/:\d\d /, " "),
-        chat: value.value,
+    function handleChatMessage(message: MessageResponse) {
+      if (message.type !== "chat") return;
+      const chatMessage: Message = {
+        sender: message.name,
+        time: new Date().toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "numeric",
+        }),
+        chat: message.value,
       };
-      setChats((prev) => [...prev, chatMessage]);
+      setChats((prevChats) => [...prevChats, chatMessage]);
     }
 
-    function onJoin(value: string) {
-      const joinMessage = {
-        chat: `${value} has joined.`,
+    function handleUserJoin(joinedUserName: string) {
+      const joinMessage: Message = {
         sender: "Server",
-        time: new Date().toLocaleTimeString().replace(/:\d\d /, " "),
+        time: new Date().toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "numeric",
+        }),
+        chat: `${joinedUserName} has joined.`,
       };
-      setChats((prev) => [...prev, joinMessage]);
+      setChats((prevChats) => [...prevChats, joinMessage]);
     }
 
-    socket.on("join", onJoin);
-    socket.on("message", onChat);
-  }, [name, socket]);
+    socket.on("message", handleChatMessage);
+    socket.on("join", handleUserJoin);
+
+    return () => {
+      socket.off("message", handleChatMessage);
+      socket.off("join", handleUserJoin);
+    };
+  }, [socket]);
 
   function sendMessage() {
+    if (inputValue.trim() === "") return;
     socket.emit("message", {
       type: "chat",
-      name: name,
+      name,
       value: inputValue,
     });
     setInputValue("");
   }
-  const messageInputProps = {
-    value: inputValue,
-    onChange: (e: ChangeEvent<HTMLInputElement>) =>
-      setInputValue(e.target.value),
-  };
+
+  function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
+    setInputValue(e.target.value);
+  }
+
   return {
-    messageInputProps,
+    messageInputProps: {
+      value: inputValue,
+      onChange: handleInputChange,
+    },
     sendMessage,
     messages: chats,
   };
